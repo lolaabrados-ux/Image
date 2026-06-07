@@ -1,0 +1,53 @@
+FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
+
+# Set environment variables
+ENV COMFYUI_PATH=/workspace/ComfyUI
+ENV CIVITAI_TOKEN=${CIVITAI_TOKEN}
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git wget ffmpeg libgl1-mesa-glx libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone ComfyUI
+RUN git clone https://github.com/comfyanonymous/ComfyUI.git ${COMFYUI_PATH}
+WORKDIR ${COMFYUI_PATH}
+
+# Install ComfyUI Python dependencies
+RUN pip install -r requirements.txt
+
+# Clone Custom Nodes required by your specific workflow JSON
+RUN cd custom_nodes && \
+    git clone https://github.com/rgthree/rgthree-comfy.git && \
+    git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git && \
+    git clone https://github.com/kijai/ComfyUI-KJNodes.git && \
+    git clone https://github.com/Fannovel16/comfyui_controlnet_aux.git && \
+    git clone https://github.com/0246/ComfyUI-0246.git && \
+    git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git && \
+    git clone https://github.com/cubiq/ComfyUI_essentials.git
+
+# Install dependencies for all custom nodes
+RUN for dir in custom_nodes/*/; do \
+    if [ -f "$dir/requirements.txt" ]; then pip install -r "$dir/requirements.txt"; fi; \
+done
+
+# Run Impact Pack's specific install script
+RUN cd custom_nodes/ComfyUI-Impact-Pack && python install.py
+
+# Copy the download script and execute it during build
+COPY download_models.py /download_models.py
+RUN python /download_models.py
+
+# Download ControlNets required by your workflow
+# 1. Depth ControlNet (Xinsir)
+RUN mkdir -p models/controlnet && \
+    wget -O models/controlnet/controlnet-depth-sdxl-1.0-xinsir.safetensors \
+    https://huggingface.co/xinsir/controlnet-depth-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors
+
+# Note: You must manually download the "Illustrious Openpose" ControlNet and place it 
+# in the models/controlnet folder, as it is not on HuggingFace under a standard direct link.
+
+EXPOSE 8188
+
+# Start ComfyUI
+CMD ["python", "main.py", "--listen", "0.0.0.0", "--port", "8188"]
